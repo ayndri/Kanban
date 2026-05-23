@@ -14,7 +14,21 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        if (isset($_SERVER['VERCEL'])) {
+            $tmpStorage = '/tmp/storage';
+            foreach ([
+                "$tmpStorage/framework/cache/data",
+                "$tmpStorage/framework/sessions",
+                "$tmpStorage/framework/views",
+                "$tmpStorage/logs",
+                "$tmpStorage/app",
+            ] as $dir) {
+                if (!is_dir($dir)) {
+                    @mkdir($dir, 0755, true);
+                }
+            }
+            $this->app->useStoragePath($tmpStorage);
+        }
     }
 
     /**

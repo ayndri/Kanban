@@ -1,34 +1,44 @@
 FROM php:8.2-apache
 
-# 1. Install driver MySQL & library yang dibutuhkan
+# Install PHP extensions
 RUN docker-php-ext-install pdo pdo_mysql
 
-# 2. Install library pendukung
+# Install system dependencies + Node.js
 RUN apt-get update && apt-get install -y \
-    git \
-    unzip \
+    git unzip curl \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Aktifkan mod_rewrite Apache (PENTING untuk routing)
-RUN a2enmod rewrite
+# Enable mod_rewrite dan set AllowOverride
+RUN a2enmod rewrite \
+    && sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
 
-# 4. Izinkan .htaccess mengubah konfigurasi (MENGATASI 404)
-RUN sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/apache2/apache2.conf
-
-# 5. Set Document Root ke folder public
+# Set Document Root ke public/
 ENV APACHE_DOCUMENT_ROOT /var/www/html/public
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
-RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf
+RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf \
+    && sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf
 
-# 6. Copy project & Install Composer
-COPY . /var/www/html
+WORKDIR /var/www/html
+
+# Copy project
+COPY . .
+
+# Install Composer & PHP dependencies
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 
-# 7. BUAT SYMLINK GAMBAR (PENTING untuk Image)
-RUN php artisan storage:link
+# Build frontend assets lalu hapus node_modules
+RUN npm ci && npm run build && rm -rf node_modules
 
-# 8. Set Permission (PENTING agar folder bisa ditulis)
-RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache /var/www/html/public/storage
+# Cache Laravel config, routes, views
+RUN php artisan config:cache \
+    && php artisan route:cache \
+    && php artisan view:cache
+
+# Storage link & permissions
+RUN php artisan storage:link \
+    && chown -R www-data:www-data storage bootstrap/cache public/storage \
+    && chmod -R 775 storage bootstrap/cache
 
 EXPOSE 80
